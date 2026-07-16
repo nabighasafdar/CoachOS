@@ -5,21 +5,59 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.coachos.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CoachOS uses the camera to log meals from photos.",
+        "NSPhotoLibraryUsageDescription": "CoachOS uses your photos to log meals.",
+        "NSLocationWhenInUseUsageDescription": "CoachOS uses your location for weather-aware workout adjustments."
+      }
     },
     "android": {
+      "package": "com.coachos.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow CoachOS to access photos for meal logging.",
+          "cameraPermission": "Allow CoachOS to use the camera for meal logging."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#3DDC97"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow CoachOS to use your location for weather-aware adjustments."
+        }
+      ]
+    ]
   }
 }
