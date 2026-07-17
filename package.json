@@ -7,7 +7,9 @@
     "@react-navigation/bottom-tabs": "^7.18.8",
     "@react-navigation/native": "^7.3.8",
     "@react-navigation/native-stack": "^7.17.10",
+    "@supabase/supabase-js": "^2.110.7",
     "axios": "^1.18.1",
+    "babel-preset-expo": "~57.0.0",
     "date-fns": "^4.4.0",
     "expo": "~57.0.6",
     "expo-constants": "~57.0.5",
@@ -20,13 +22,16 @@
     "expo-secure-store": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.1",
-    "firebase": "^12.16.0",
     "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-native": "0.86.0",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "4.5.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
+    "react-native-url-polyfill": "^4.0.0",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -35,9 +40,12 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "api:install": "cd services/api && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+    "api:dev": "cd services/api && .venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "demo": "bash scripts/demo.sh"
   },
   "private": true
 }

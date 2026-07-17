@@ -34,6 +34,13 @@ yarn-error.*
 .env
 .env*.local
 
+# Python API
+services/api/.venv/
+services/api/data/
+services/api/**/__pycache__/
+**/__pycache__/
+*.pyc
+
 # typescript
 *.tsbuildinfo
 
