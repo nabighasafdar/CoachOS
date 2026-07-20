@@ -20,11 +20,23 @@ type TabIconProps = {
   symbol: string;
 };
 
-function IconWrap({ focused, children }: { focused: boolean; children: ReactNode }) {
+function IconWrap({
+  focused,
+  children,
+  activeColor = ACTIVE,
+}: {
+  focused: boolean;
+  children: ReactNode;
+  activeColor?: string;
+}) {
   return (
     <View style={styles.wrap}>
       {children}
-      {focused ? <View style={styles.dot} /> : <View style={styles.dotSpacer} />}
+      {focused ? (
+        <View style={[styles.dot, { backgroundColor: activeColor, shadowColor: activeColor }]} />
+      ) : (
+        <View style={styles.dotSpacer} />
+      )}
     </View>
   );
 }
@@ -59,11 +71,37 @@ export function CaloriesTabIcon({ focused, color }: Omit<TabIconProps, 'symbol'>
 }
 
 export function AgentsTabIcon({ focused, color }: Omit<TabIconProps, 'symbol'>) {
-  return <TabSymbolIcon focused={focused} color={color} symbol={TAB_SYMBOLS.Agents} />;
+  const activeColor = focused ? '#C084FC' : color;
+  return (
+    <IconWrap focused={focused} activeColor="#C084FC">
+      <Text
+        style={[
+          styles.symbol,
+          { color: activeColor },
+          focused && { textShadowColor: 'rgba(192,132,252,0.9)', textShadowRadius: 8 },
+        ]}
+      >
+        {TAB_SYMBOLS.Agents}
+      </Text>
+    </IconWrap>
+  );
 }
 
 export function ProfileTabIcon({ focused, color }: Omit<TabIconProps, 'symbol'>) {
-  return <TabSymbolIcon focused={focused} color={color} symbol={TAB_SYMBOLS.Profile} />;
+  return (
+    <IconWrap focused={focused} activeColor={ACTIVE}>
+      <Text
+        style={[
+          styles.symbol,
+          { color },
+          focused && styles.symbolActive,
+          focused && styles.profileGlow,
+        ]}
+      >
+        {TAB_SYMBOLS.Profile}
+      </Text>
+    </IconWrap>
+  );
 }
 
 export const tabBarOptions: BottomTabNavigationOptions = {

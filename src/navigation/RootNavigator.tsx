@@ -107,6 +107,7 @@ function MainTabs() {
         component={AgentsScreen}
         options={{
           tabBarLabel: 'AGENTS',
+          tabBarActiveTintColor: '#C084FC',
           tabBarIcon: ({ focused, color }) => <AgentsTabIcon focused={focused} color={color} />,
         }}
       />
@@ -115,6 +116,7 @@ function MainTabs() {
         component={ProfileScreen}
         options={{
           tabBarLabel: 'PROFILE',
+          tabBarActiveTintColor: '#8EB4FF',
           tabBarIcon: ({ focused, color }) => <ProfileTabIcon focused={focused} color={color} />,
         }}
       />

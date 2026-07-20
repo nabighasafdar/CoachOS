@@ -7,17 +7,66 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchActivity, runAccountability } from '../services/coachApi';
 import { useAppStore } from '../store/appStore';
-import type { AgentName } from '../types/agent';
+import type { AgentName, DecisionLogEntry } from '../types/agent';
 
-const COLORS: Record<AgentName, string> = {
+const AGENT_COLORS: Record<AgentName, string> = {
   planner: '#7AA2FF',
   recovery: '#3DDC97',
   nutrition: '#F0C14A',
   adaptation: '#C084FC',
   accountability: '#FF7B72',
 };
+
+const AGENT_LABELS: Record<AgentName, string> = {
+  planner: 'Planner',
+  recovery: 'Recovery',
+  nutrition: 'Nutrition',
+  adaptation: 'Adaptation',
+  accountability: 'Accountability',
+};
+
+const LEGEND: AgentName[] = [
+  'planner',
+  'recovery',
+  'nutrition',
+  'adaptation',
+  'accountability',
+];
+
+function formatStamp(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = d.toISOString().slice(0, 10);
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${date} · ${time}`;
+}
+
+function humanAction(action: string) {
+  return action
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function DecisionCard({ decision }: { decision: DecisionLogEntry }) {
+  const color = AGENT_COLORS[decision.agent] ?? '#F4F7FB';
+  const label = AGENT_LABELS[decision.agent] ?? decision.agent;
+  return (
+    <View style={[styles.card, { borderColor: `${color}55` }]}>
+      <View style={styles.cardHeader}>
+        <View style={styles.agentRow}>
+          <View style={[styles.dot, { backgroundColor: color }]} />
+          <Text style={[styles.agentName, { color }]}>{label}</Text>
+        </View>
+        <Text style={styles.time}>{formatStamp(decision.timestamp)}</Text>
+      </View>
+      <Text style={styles.action}>{humanAction(decision.action)}</Text>
+      <Text style={styles.reason}>{decision.reason}</Text>
+    </View>
+  );
+}
 
 export function AgentsScreen() {
   const profile = useAppStore((s) => s.profile);
@@ -51,61 +100,110 @@ export function AgentsScreen() {
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={busy} onRefresh={refresh} tintColor="#3DDC97" />}
-    >
-      <Text style={styles.title}>Agent Activity</Text>
-      <Text style={styles.sub}>Every observe → decide → act step with its reason.</Text>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={busy} onRefresh={refresh} tintColor="#C084FC" />
+        }
+      >
+        <View style={styles.previewPill}>
+          <Text style={styles.previewText}>Preview</Text>
+        </View>
 
-      <Pressable style={styles.secondary} onPress={accountability}>
-        <Text style={styles.secondaryText}>Run Accountability Agent</Text>
-      </Pressable>
-      {nudge ? <Text style={styles.nudge}>{nudge}</Text> : null}
+        <Text style={styles.title}>Agent Activity</Text>
+        <Text style={styles.sub}>What each agent decided — and why.</Text>
 
-      {decisions.length === 0 ? (
-        <Text style={styles.empty}>No decisions yet. Generate a plan, check in, or skip a workout.</Text>
-      ) : (
-        decisions.map((d) => (
-          <View key={d.id} style={styles.card}>
-            <View style={styles.row}>
-              <Text style={[styles.agent, { color: COLORS[d.agent] ?? '#F4F7FB' }]}>{d.agent}</Text>
-              <Text style={styles.time}>{new Date(d.timestamp).toLocaleString()}</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.legendRow}
+        >
+          {LEGEND.map((agent) => (
+            <View key={agent} style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: AGENT_COLORS[agent] }]} />
+              <Text style={styles.legendText}>{AGENT_LABELS[agent]}</Text>
             </View>
-            <Text style={styles.action}>{d.action}</Text>
-            <Text style={styles.reason}>{d.reason}</Text>
+          ))}
+        </ScrollView>
+
+        <Pressable style={styles.accountabilityBtn} onPress={accountability} disabled={busy}>
+          <Text style={styles.accountabilityText}>Run Accountability Agent</Text>
+        </Pressable>
+        {nudge ? <Text style={styles.nudge}>{nudge}</Text> : null}
+
+        {decisions.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No decisions yet</Text>
+            <Text style={styles.emptyCopy}>
+              Generate a plan, scan a meal, or skip a workout — agents will log every action here.
+            </Text>
           </View>
-        ))
-      )}
-    </ScrollView>
+        ) : (
+          decisions.map((d) => <DecisionCard key={d.id} decision={d} />)
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, backgroundColor: '#0B1220', gap: 10 },
-  title: { fontSize: 24, fontWeight: '700', color: '#F4F7FB' },
-  sub: { color: '#9AA8BC' },
-  secondary: {
-    borderColor: '#3DDC97',
+  safe: { flex: 1, backgroundColor: '#0B0B0C' },
+  container: { padding: 20, paddingBottom: 40, gap: 12 },
+  previewPill: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
+    borderColor: '#2A2A2E',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  previewText: { color: '#6B6B6B', fontSize: 11, fontWeight: '700' },
+  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5 },
+  sub: { color: '#8A8A8A', fontSize: 15, marginTop: -4 },
+  legendRow: { gap: 14, paddingVertical: 4 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendText: { color: '#9AA8BC', fontSize: 12, fontWeight: '600' },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  accountabilityBtn: {
+    backgroundColor: '#1A1010',
+    borderRadius: 16,
+    minHeight: 52,
     alignItems: 'center',
-  },
-  secondaryText: { color: '#3DDC97', fontWeight: '600' },
-  nudge: { color: '#F0C14A', lineHeight: 20 },
-  empty: { color: '#9AA8BC', marginTop: 12 },
-  card: {
-    backgroundColor: '#121A2B',
-    borderRadius: 12,
-    padding: 14,
-    borderColor: '#1E2A40',
+    justifyContent: 'center',
     borderWidth: 1,
-    gap: 4,
+    borderColor: '#3A2020',
+    marginTop: 4,
   },
-  row: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  agent: { fontWeight: '700', textTransform: 'uppercase', fontSize: 12 },
-  time: { color: '#6B7A90', fontSize: 11 },
-  action: { color: '#F4F7FB', fontWeight: '600' },
-  reason: { color: '#C5D0E0', lineHeight: 20 },
+  accountabilityText: { color: '#FF8A84', fontWeight: '700', fontSize: 15 },
+  nudge: { color: '#F0C14A', lineHeight: 20 },
+  emptyCard: {
+    backgroundColor: '#121214',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#1C1C1C',
+    marginTop: 4,
+  },
+  emptyTitle: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
+  emptyCopy: { color: '#8A8A8A', marginTop: 6, lineHeight: 20 },
+  card: {
+    backgroundColor: '#121214',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  agentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  agentName: { fontWeight: '800', fontSize: 13 },
+  time: { color: '#6B6B6B', fontSize: 11, fontWeight: '600' },
+  action: { color: '#FFFFFF', fontWeight: '800', fontSize: 16, marginTop: 2, lineHeight: 22 },
+  reason: { color: '#9AA8BC', lineHeight: 20, fontSize: 13 },
 });
