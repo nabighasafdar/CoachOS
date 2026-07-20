@@ -68,16 +68,66 @@ export async function logCheckIn(userId: string, signals: DailySignals) {
   return data as { signals: DailySignals; adaptation: unknown };
 }
 
-export async function logMeal(userId: string, description: string, pantry: string[] = []) {
+export async function logMeal(
+  userId: string,
+  description: string,
+  pantry: string[] = [],
+  photoBase64?: string | null,
+  mealSlot?: string | null,
+  mealLabel?: string | null,
+) {
   const { data } = await api.post('/log/meal', {
     user_id: userId,
     description,
     pantry,
+    photo_base64: photoBase64 || undefined,
+    meal_slot: mealSlot || undefined,
+    meal_label: mealLabel || undefined,
   });
   return data as {
-    meal: unknown;
+    meal: {
+      description?: string;
+      calories?: number;
+      protein_g?: number;
+      carbs_g?: number;
+      fat_g?: number;
+      source?: string;
+      meal_slot?: string;
+      meal_label?: string;
+    };
     nutrition_state: NutritionState;
     reason: string;
+    identify?: {
+      food_name?: string;
+      portion?: string;
+      confidence?: number;
+      query?: string;
+    };
+    macros?: {
+      calories?: number;
+      protein_g?: number;
+      carbs_g?: number;
+      fat_g?: number;
+    };
+    remaining_kcal?: number;
+    meal_slot?: string;
+    meal_label?: string;
+  };
+}
+
+export async function fetchNutrition(userId: string) {
+  const { data } = await api.get(`/nutrition/${userId}`);
+  return data.nutrition as NutritionState | null;
+}
+
+export async function setCalorieTarget(userId: string, calorieTarget: number) {
+  const { data } = await api.post('/nutrition/target', {
+    user_id: userId,
+    calorie_target: calorieTarget,
+  });
+  return data as {
+    profile: UserProfile;
+    nutrition: NutritionState;
   };
 }
 

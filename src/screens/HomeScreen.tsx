@@ -6,10 +6,21 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import { adaptPlan, fetchActivity, fetchPlan, generatePlan, healthCheck } from '../services/coachApi';
+import { useFocusEffect } from '@react-navigation/native';
+import {
+  adaptPlan,
+  fetchActivity,
+  fetchNutrition,
+  fetchPlan,
+  generatePlan,
+  healthCheck,
+  setCalorieTarget,
+} from '../services/coachApi';
 import { useAppStore } from '../store/appStore';
+import type { NutritionState } from '../types/agent';
 
 const COLORS = {
   background: '#080D18',
@@ -23,17 +34,24 @@ const COLORS = {
   accentDark: '#0B392A',
   warning: '#FFCA68',
   danger: '#FF7B72',
+  gold: '#D4A017',
 };
 
 export function HomeScreen() {
   const profile = useAppStore((s) => s.profile);
   const plan = useAppStore((s) => s.plan);
   const setPlan = useAppStore((s) => s.setPlan);
+  const setProfile = useAppStore((s) => s.setProfile);
+  const persistProfile = useAppStore((s) => s.persistProfile);
   const setDecisions = useAppStore((s) => s.setDecisions);
   const lastSignals = useAppStore((s) => s.lastSignals);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [apiOk, setApiOk] = useState<boolean | null>(null);
+  const [nutrition, setNutrition] = useState<NutritionState | null>(null);
+  const [calorieInput, setCalorieInput] = useState(
+    String(profile?.daily_calorie_target ?? 2200),
+  );
 
   const refresh = useCallback(async () => {
     if (!profile) return;
@@ -45,7 +63,11 @@ export function HomeScreen() {
       setPlan(next);
       const decisions = await fetchActivity(profile.user_id);
       setDecisions(decisions);
-      setMsg('Synced plan + agent activity');
+      const nut = await fetchNutrition(profile.user_id).catch(() => null);
+      setNutrition(nut);
+      if (nut?.calorie_target) setCalorieInput(String(nut.calorie_target));
+      else if (profile.daily_calorie_target) setCalorieInput(String(profile.daily_calorie_target));
+      setMsg('Synced plan + calorie tracking');
     } catch (e) {
       setApiOk(false);
       setMsg(e instanceof Error ? e.message : 'Refresh failed');
@@ -54,13 +76,42 @@ export function HomeScreen() {
     }
   }, [profile, setDecisions, setPlan]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
+
+  async function saveWeeklyCaloriePlan() {
+    if (!profile) return;
+    const target = Number(calorieInput);
+    if (!Number.isFinite(target) || target < 800 || target > 6000) {
+      setMsg('Enter a daily calorie target between 800 and 6000.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await setCalorieTarget(profile.user_id, Math.round(target));
+      const nextProfile = { ...profile, ...result.profile, daily_calorie_target: Math.round(target) };
+      setProfile(nextProfile);
+      await persistProfile(nextProfile);
+      setNutrition(result.nutrition);
+      setDecisions(await fetchActivity(profile.user_id));
+      setMsg(`Weekly calorie plan set to ${Math.round(target)} kcal/day. AI will track meals against it.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Could not save calorie plan');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function rebuild() {
     if (!profile) return;
     setBusy(true);
     try {
       const next = await generatePlan(profile.user_id, profile, true);
       setPlan(next);
-      setMsg('Planner rebuilt your week');
+      setMsg('Planner built your weekly training plan');
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Plan failed');
     } finally {
@@ -89,8 +140,8 @@ export function HomeScreen() {
   const planned = plan?.sessions.filter((s) => s.status === 'planned').length ?? 0;
   const total = plan?.sessions.length ?? 0;
   const progress = total > 0 ? Math.round((done / total) * 100) : 0;
-  const nextSession = plan?.sessions.find((session) =>
-    session.status === 'planned' || session.status === 'moved'
+  const nextSession = plan?.sessions.find(
+    (session) => session.status === 'planned' || session.status === 'moved',
   );
   const readiness = lastSignals
     ? Math.max(
@@ -104,8 +155,32 @@ export function HomeScreen() {
       )
     : null;
   const readinessLabel =
-    readiness === null ? 'Check in' : readiness >= 75 ? 'Ready to train' : readiness >= 50 ? 'Take it steady' : 'Recovery first';
+    readiness === null
+      ? 'Check in'
+      : readiness >= 75
+        ? 'Ready to train'
+        : readiness >= 50
+          ? 'Take it steady'
+          : 'Recovery first';
   const firstName = profile?.display_name?.trim().split(' ')[0] || 'Athlete';
+
+  const calorieTarget =
+    nutrition?.calorie_target ?? profile?.daily_calorie_target ?? 2200;
+  const eatenToday = (nutrition?.meals ?? []).reduce((sum, m) => sum + (m.calories || 0), 0);
+  const remainingToday = Math.max(calorieTarget - eatenToday, 0);
+  const calorieProgress = Math.min(eatenToday / Math.max(calorieTarget, 1), 1);
+  const biggestMeal = [...(nutrition?.meals ?? [])].sort(
+    (a, b) => (b.calories || 0) - (a.calories || 0),
+  )[0];
+  const biggestShare =
+    biggestMeal && calorieTarget
+      ? (biggestMeal.calories || 0) / calorieTarget
+      : 0;
+  const majorityTip =
+    biggestShare >= 0.45 && biggestMeal
+      ? `You used ~${Math.round(biggestShare * 100)}% of today in one meal (${biggestMeal.meal_label || 'meal'} · ${biggestMeal.calories} kcal). Next meals should stay lighter (~${Math.max(150, Math.min(remainingToday, Math.round(calorieTarget * 0.2)))} kcal).`
+      : null;
+  const aiTips = nutrition?.suggestions?.slice(0, 2) ?? [];
 
   return (
     <ScrollView
@@ -133,14 +208,88 @@ export function HomeScreen() {
         <Text style={styles.systemText}>Week of {formatShortDate(plan?.week_start)}</Text>
       </View>
 
+      <View style={styles.caloriePlanCard}>
+        <Text style={styles.cardLabel}>WEEKLY PLAN + CALORIES</Text>
+        <Text style={styles.caloriePlanTitle}>Set your daily calorie target</Text>
+        <Text style={styles.caloriePlanCopy}>
+          AI tracks every scan against this plan. If most calories land in one meal, it recommends
+          lighter options for the next meals.
+        </Text>
+
+        <View style={styles.calorieInputRow}>
+          <TextInput
+            style={styles.calorieInput}
+            keyboardType="number-pad"
+            value={calorieInput}
+            onChangeText={setCalorieInput}
+            placeholder="2200"
+            placeholderTextColor={COLORS.dim}
+          />
+          <Text style={styles.calorieUnit}>kcal / day</Text>
+        </View>
+
+        <View style={styles.calorieTodayRow}>
+          <Text style={styles.calorieTodayText}>
+            Today: <Text style={styles.calorieTodayEm}>{eatenToday}</Text> / {calorieTarget} ·{' '}
+            {remainingToday} left
+          </Text>
+          <Text style={styles.calorieTodayPct}>{Math.round(calorieProgress * 100)}%</Text>
+        </View>
+        <View style={styles.progressTrack}>
+          <View style={[styles.calorieFill, { width: `${calorieProgress * 100}%` }]} />
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.goldBtn, pressed && styles.buttonPressed]}
+          onPress={saveWeeklyCaloriePlan}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color="#111" />
+          ) : (
+            <Text style={styles.goldBtnText}>Save calorie plan</Text>
+          )}
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [styles.secondary, pressed && styles.buttonPressed, { marginTop: 10 }]}
+          onPress={rebuild}
+          disabled={busy}
+        >
+          <Text style={styles.secondaryText}>
+            {total ? 'Rebuild weekly training plan' : 'Add weekly training plan'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {(majorityTip || aiTips.length > 0) && (
+        <View style={styles.nutritionAiCard}>
+          <View style={styles.nutritionAiIcon}>
+            <Text style={styles.nutritionAiIconText}>N</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nutritionAiName}>Nutrition Agent</Text>
+            {majorityTip ? (
+              <Text style={styles.nutritionAiCopy}>{majorityTip}</Text>
+            ) : (
+              aiTips.map((tip) => (
+                <Text key={tip} style={styles.nutritionAiCopy}>
+                  • {tip}
+                </Text>
+              ))
+            )}
+          </View>
+        </View>
+      )}
+
       <View style={styles.readinessCard}>
         <View style={styles.readinessTop}>
           <View>
-            <Text style={styles.cardLabel}>TODAY'S READINESS</Text>
+            <Text style={styles.cardLabel}>TODAY&apos;S READINESS</Text>
             <Text style={styles.readinessTitle}>{readinessLabel}</Text>
             <Text style={styles.readinessCopy}>
               {lastSignals
-                ? `Based on sleep, energy and soreness`
+                ? 'Based on sleep, energy and soreness'
                 : 'Complete your morning check-in for a score'}
             </Text>
           </View>
@@ -189,7 +338,9 @@ export function HomeScreen() {
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>{total ? 'Week complete' : 'No plan yet'}</Text>
           <Text style={styles.emptyCopy}>
-            {total ? 'Great work. Ask Planner to prepare your next week.' : 'Build your first personalized training week.'}
+            {total
+              ? 'Great work. Ask Planner to prepare your next week.'
+              : 'Tap “Add weekly training plan” above to build your first week.'}
           </Text>
         </View>
       )}
@@ -198,7 +349,9 @@ export function HomeScreen() {
         <View style={styles.progressHeader}>
           <View>
             <Text style={styles.cardLabel}>WEEKLY PROGRESS</Text>
-            <Text style={styles.progressTitle}>{done} of {total} sessions complete</Text>
+            <Text style={styles.progressTitle}>
+              {done} of {total} sessions complete
+            </Text>
           </View>
           <Text style={styles.progressPercent}>{progress}%</Text>
         </View>
@@ -219,7 +372,8 @@ export function HomeScreen() {
         <View style={styles.agentContent}>
           <Text style={styles.agentName}>Adaptation Agent</Text>
           <Text style={styles.agentCopy}>
-            {msg || 'I’m watching your recovery and schedule. Run an adaptation whenever your day changes.'}
+            {msg ||
+              'I’m watching your recovery, calories, and schedule. Run an adaptation whenever your day changes.'}
           </Text>
         </View>
       </View>
@@ -237,13 +391,6 @@ export function HomeScreen() {
             <Text style={styles.buttonArrow}>→</Text>
           </>
         )}
-      </Pressable>
-      <Pressable
-        style={({ pressed }) => [styles.secondary, pressed && styles.buttonPressed]}
-        onPress={rebuild}
-        disabled={busy}
-      >
-        <Text style={styles.secondaryText}>Rebuild training week</Text>
       </Pressable>
 
       <Text style={styles.footer}>Your agents explain every change in the Agents tab.</Text>
@@ -320,6 +467,76 @@ const styles = StyleSheet.create({
   statusDotOffline: { backgroundColor: COLORS.danger },
   systemText: { color: COLORS.dim, fontSize: 12, fontWeight: '500' },
   systemDivider: { color: COLORS.border, marginHorizontal: 8 },
+  caloriePlanCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 22,
+    padding: 18,
+    borderColor: 'rgba(212,160,23,0.45)',
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  caloriePlanTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800', marginTop: 4 },
+  caloriePlanCopy: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
+  calorieInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 6,
+  },
+  calorieInput: {
+    flex: 1,
+    backgroundColor: COLORS.surfaceSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: '800',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  calorieUnit: { color: COLORS.gold, fontWeight: '700' },
+  calorieTodayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  calorieTodayText: { color: COLORS.muted, fontSize: 13 },
+  calorieTodayEm: { color: COLORS.text, fontWeight: '800' },
+  calorieTodayPct: { color: COLORS.gold, fontWeight: '800' },
+  calorieFill: { height: '100%', backgroundColor: COLORS.gold, borderRadius: 4 },
+  goldBtn: {
+    backgroundColor: COLORS.gold,
+    borderRadius: 14,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  goldBtnText: { color: '#111111', fontWeight: '900', fontSize: 15 },
+  nutritionAiCard: {
+    flexDirection: 'row',
+    backgroundColor: '#1A1608',
+    borderRadius: 18,
+    padding: 15,
+    borderColor: 'rgba(212,160,23,0.35)',
+    borderWidth: 1,
+    alignItems: 'flex-start',
+    gap: 4,
+  },
+  nutritionAiIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,160,23,0.18)',
+    marginRight: 12,
+  },
+  nutritionAiIconText: { color: COLORS.gold, fontSize: 14, fontWeight: '900' },
+  nutritionAiName: { color: COLORS.gold, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
+  nutritionAiCopy: { color: '#E8D9A8', lineHeight: 19, fontSize: 13, marginTop: 4 },
   readinessCard: {
     backgroundColor: COLORS.surface,
     borderRadius: 22,
@@ -355,9 +572,19 @@ const styles = StyleSheet.create({
   signalValue: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
   signalLabel: { color: COLORS.dim, fontSize: 11, marginTop: 4 },
   verticalRule: { width: 1, height: 26, backgroundColor: COLORS.border },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
   sectionTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800' },
-  planBadge: { backgroundColor: COLORS.surfaceSoft, borderRadius: 99, paddingVertical: 6, paddingHorizontal: 10 },
+  planBadge: {
+    backgroundColor: COLORS.surfaceSoft,
+    borderRadius: 99,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
   planBadgeText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   workoutCard: {
     flexDirection: 'row',
@@ -375,7 +602,12 @@ const styles = StyleSheet.create({
   workoutTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800', marginTop: 7 },
   workoutFocus: { color: COLORS.muted, fontSize: 13, marginTop: 3 },
   exerciseList: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 13 },
-  exerciseChip: { backgroundColor: COLORS.surfaceSoft, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 9 },
+  exerciseChip: {
+    backgroundColor: COLORS.surfaceSoft,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 9,
+  },
   exerciseText: { color: '#BCC7D8', fontSize: 11, fontWeight: '600' },
   emptyCard: {
     backgroundColor: COLORS.surface,
@@ -396,13 +628,16 @@ const styles = StyleSheet.create({
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   progressTitle: { color: COLORS.text, fontSize: 15, fontWeight: '700', marginTop: 6 },
   progressPercent: { color: COLORS.accent, fontSize: 22, fontWeight: '900' },
-  progressTrack: { height: 7, borderRadius: 4, backgroundColor: COLORS.surfaceSoft, overflow: 'hidden', marginTop: 15 },
+  progressTrack: {
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: COLORS.surfaceSoft,
+    overflow: 'hidden',
+    marginTop: 15,
+  },
   progressFill: { height: '100%', backgroundColor: COLORS.accent, borderRadius: 4 },
   stats: { flexDirection: 'row', marginTop: 15 },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-  },
+  stat: { flex: 1, alignItems: 'center' },
   statValue: { fontSize: 18, fontWeight: '900' },
   statLabel: { color: COLORS.dim, marginTop: 3, fontSize: 10 },
   agentCard: {

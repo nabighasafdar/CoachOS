@@ -35,6 +35,7 @@ class UserProfile(BaseModel):
     push_token: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    daily_calorie_target: int = 2200
 
 
 class WorkoutSession(BaseModel):
@@ -76,6 +77,8 @@ class MealLog(BaseModel):
     carbs_g: Optional[float] = None
     fat_g: Optional[float] = None
     source: Literal["text", "photo", "barcode"] = "text"
+    meal_slot: Optional[str] = None
+    meal_label: Optional[str] = None
     logged_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
 
 
@@ -141,6 +144,13 @@ class LogMealRequest(BaseModel):
     description: str
     photo_base64: Optional[str] = None
     pantry: list[str] = Field(default_factory=list)
+    meal_slot: Optional[str] = None
+    meal_label: Optional[str] = None
+
+
+class SetCalorieTargetRequest(BaseModel):
+    user_id: str
+    calorie_target: int = Field(ge=800, le=6000)
 
 
 class AccountabilityRequest(BaseModel):

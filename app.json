@@ -39,6 +39,14 @@
       "expo-secure-store",
       "expo-font",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow CoachOS to use the camera to scan meals for calorie logging.",
+          "microphonePermission": "Allow CoachOS to use the microphone when recording video.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Allow CoachOS to access photos for meal logging.",

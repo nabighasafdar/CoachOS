@@ -17,8 +17,10 @@ from schemas.state import (
     LogWorkoutRequest,
     PlanRequest,
     SessionStatus,
+    SetCalorieTargetRequest,
     UpsertProfileRequest,
     UserProfile,
+    NutritionState,
 )
 from store.db import store
 from tools.health import get_health_client
@@ -158,6 +160,8 @@ async def log_meal(body: LogMealRequest):
         description=body.description,
         pantry=body.pantry,
         photo_base64=body.photo_base64,
+        meal_slot=body.meal_slot,
+        meal_label=body.meal_label,
     )
     from schemas.state import AgentName, DecisionLogEntry
     import uuid
@@ -169,7 +173,16 @@ async def log_meal(body: LogMealRequest):
             agent=AgentName.nutrition,
             action=result["action"],
             reason=result["reason"],
-            inputs={"description": body.description},
+            inputs={
+                "description": body.description,
+                "has_photo": bool(body.photo_base64),
+                "identify": result.get("identify"),
+                "macros": result.get("macros"),
+                "remaining_kcal": result.get("remaining_kcal"),
+                "pantry": body.pantry,
+                "meal_slot": body.meal_slot,
+                "meal_label": body.meal_label,
+            },
         )
     )
     return result
@@ -186,6 +199,47 @@ async def nutrition(user_id: str):
     _require_user(user_id)
     state = store.get_nutrition(user_id, date.today().isoformat())
     return {"nutrition": state.model_dump() if state else None}
+
+
+@app.post("/nutrition/target")
+async def set_calorie_target(body: SetCalorieTargetRequest):
+    """Save weekly daily calorie target on the profile and today's nutrition state."""
+    profile = _require_user(body.user_id)
+    profile.daily_calorie_target = body.calorie_target
+    store.upsert_user(profile)
+
+    today = date.today().isoformat()
+    state = store.get_nutrition(body.user_id, today) or NutritionState(
+        user_id=body.user_id,
+        date=today,
+        calorie_target=body.calorie_target,
+    )
+    state.calorie_target = body.calorie_target
+    eaten = sum(m.calories or 0 for m in state.meals)
+    remaining = max(state.calorie_target - eaten, 0)
+    state.suggestions = [
+        f"Weekly calorie plan set to {body.calorie_target} kcal/day.",
+        f"~{remaining} kcal left today — Nutrition Agent will balance later meals if one meal runs high.",
+    ]
+    store.set_nutrition(state)
+
+    from schemas.state import AgentName, DecisionLogEntry
+    import uuid
+
+    store.add_decision(
+        DecisionLogEntry(
+            id=uuid.uuid4().hex[:12],
+            user_id=body.user_id,
+            agent=AgentName.nutrition,
+            action="set_calorie_target",
+            reason=(
+                f"Daily calorie target set to {body.calorie_target} kcal. "
+                "If most calories are eaten in one meal, later meals get lighter recommendations."
+            ),
+            inputs={"calorie_target": body.calorie_target},
+        )
+    )
+    return {"profile": profile.model_dump(), "nutrition": state.model_dump()}
 
 
 @app.post("/accountability/run")

@@ -15,6 +15,7 @@ export type UserProfile = {
   push_token?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  daily_calorie_target?: number;
 };
 
 export type WorkoutSession = {
@@ -56,6 +57,8 @@ export type MealLog = {
   carbs_g?: number | null;
   fat_g?: number | null;
   source: 'text' | 'photo' | 'barcode';
+  meal_slot?: string | null;
+  meal_label?: string | null;
   logged_at: string;
 };
 

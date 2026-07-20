@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     gemini_api_key: str = ""
+    api_ninjas_key: str = ""
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     use_mock_tools: bool = True

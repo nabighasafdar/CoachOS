@@ -1,7 +1,7 @@
 export type RootTabParamList = {
   Home: undefined;
   Plan: undefined;
-  Log: undefined;
+  Calories: undefined;
   Agents: undefined;
   Profile: undefined;
 };
