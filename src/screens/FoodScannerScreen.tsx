@@ -14,11 +14,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getMealSlotForDate, MEAL_OPTIONS, type MealSlot } from '../lib/mealTime';
 import { recordMealLogged } from '../lib/nutritionStreak';
-import type { NutritionStackParamList } from '../navigation/nutritionTypes';
-import { fetchActivity, logMeal } from '../services/coachApi';
+import type { HomeStackParamList } from '../navigation/types';
+import { fetchActivity, fetchNutrition, logMeal } from '../services/coachApi';
 import { useAppStore } from '../store/appStore';
+import { UI } from '../theme/ui';
+import type { IdentifiedFoodItem } from '../types/agent';
 
-type Props = NativeStackScreenProps<NutritionStackParamList, 'Scanner'>;
+type Props = NativeStackScreenProps<HomeStackParamList, 'Scanner'>;
 
 type ScanResult = {
   foodName: string;
@@ -30,6 +32,8 @@ type ScanResult = {
   mealLabel: string;
   reason: string;
   remaining?: number;
+  photoUri?: string;
+  items: IdentifiedFoodItem[];
 };
 
 type PendingPhoto = {
@@ -64,16 +68,34 @@ export function FoodScannerScreen({ navigation, route }: Props) {
     setBusy(true);
     setError('');
     try {
+      const pantry = profile
+        ? (await fetchNutrition(profile.user_id))?.pantry ?? []
+        : [];
       const response = await logMeal(
         profile.user_id,
         'Scanned meal',
-        ['eggs', 'oats', 'frozen veg', 'chicken'],
+        pantry,
         pending.base64,
         selectedOption.slot,
         selectedOption.label,
       );
       await recordMealLogged();
       setDecisions(await fetchActivity(profile.user_id));
+      const items =
+        response.identified_items?.length
+          ? response.identified_items
+          : response.identify?.items?.length
+            ? response.identify.items
+            : [
+                {
+                  name: response.identify?.food_name || response.meal?.description || 'Meal',
+                  portion: response.identify?.portion || '1 serving',
+                  calories: response.meal?.calories ?? response.macros?.calories,
+                  protein_g: response.meal?.protein_g ?? response.macros?.protein_g,
+                  carbs_g: response.meal?.carbs_g ?? response.macros?.carbs_g,
+                  fat_g: response.meal?.fat_g ?? response.macros?.fat_g,
+                },
+              ];
       setResult({
         foodName: response.identify?.food_name || response.meal?.description || 'Meal',
         portion: response.identify?.portion || '1 serving',
@@ -84,6 +106,8 @@ export function FoodScannerScreen({ navigation, route }: Props) {
         mealLabel: response.meal_label || selectedOption.label,
         reason: response.reason,
         remaining: response.remaining_kcal,
+        photoUri: pending.uri,
+        items,
       });
       setPending(null);
     } catch (e) {
@@ -163,35 +187,69 @@ export function FoodScannerScreen({ navigation, route }: Props) {
   }
 
   if (result) {
+    const itemCount = result.items.length;
     return (
       <SafeAreaView style={styles.resultSafe}>
-        <View style={styles.resultHeader}>
-          <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Text style={styles.backBtnText}>‹</Text>
+        <ScrollView contentContainerStyle={styles.resultScroll} showsVerticalScrollIndicator={false}>
+          <Pressable style={styles.resultBack} onPress={() => navigation.goBack()}>
+            <Text style={styles.resultBackText}>‹ Nutrition</Text>
           </Pressable>
-          <Text style={styles.resultHeaderTitle}>Scan result</Text>
-          <View style={{ width: 44 }} />
-        </View>
-        <ScrollView contentContainerStyle={styles.resultScroll}>
-          <View style={styles.resultCard}>
-            <Text style={styles.slotPill}>{result.mealLabel}</Text>
-            <Text style={styles.resultFood}>{result.foodName}</Text>
-            <Text style={styles.resultPortion}>Portion: {result.portion}</Text>
-            <Text style={styles.resultKcal}>{result.calories ?? '—'} kcal</Text>
-            <Text style={styles.resultMacros}>
-              P {result.protein_g ?? '—'}g · C {result.carbs_g ?? '—'}g · F {result.fat_g ?? '—'}g
+
+          <Text style={styles.resultTitle}>Scan result</Text>
+          <Text style={styles.resultSub}>
+            Photo logged just now · identified {itemCount} item{itemCount === 1 ? '' : 's'} on the plate.
+          </Text>
+
+          {result.photoUri ? (
+            <Image source={{ uri: result.photoUri }} style={styles.platePhoto} />
+          ) : (
+            <View style={styles.platePlaceholder}>
+              <Text style={styles.platePlaceholderIcon}>⌗</Text>
+              <Text style={styles.platePlaceholderText}>Plate photo</Text>
+            </View>
+          )}
+
+          <View style={[styles.insight, { backgroundColor: UI.agentBg.nutrition, borderColor: UI.agents.nutrition }]}>
+            <Text style={[styles.insightLabel, { color: UI.agents.nutrition }]}>Nutrition</Text>
+            <Text style={styles.insightBody}>
+              Vision scan complete — totals below cover most of today&apos;s remaining protein target.
             </Text>
-            {result.remaining != null ? (
-              <Text style={styles.resultRemaining}>~{result.remaining} kcal left today</Text>
-            ) : null}
-            <Text style={styles.resultReason}>{result.reason}</Text>
-            <Pressable style={styles.primary} onPress={resetScan}>
-              <Text style={styles.primaryText}>Scan another</Text>
-            </Pressable>
-            <Pressable style={styles.secondary} onPress={() => navigation.navigate('Dashboard')}>
-              <Text style={styles.secondaryText}>Back to dashboard</Text>
-            </Pressable>
           </View>
+
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryKcal}>{result.calories ?? '—'} kcal</Text>
+            <View style={styles.summaryMacros}>
+              <MacroDot label="Protein" value={result.protein_g} color="#6B8E23" />
+              <MacroDot label="Carbs" value={result.carbs_g} color="#A0522D" />
+              <MacroDot label="Fat" value={result.fat_g} color="#4682B4" />
+            </View>
+          </View>
+
+          <View style={styles.itemsHeader}>
+            <Text style={styles.itemsTitle}>Items identified</Text>
+            <Text style={styles.itemsHint}>✦ Tap to correct</Text>
+          </View>
+
+          {result.items.map((item, index) => (
+            <View key={`${item.name}-${index}`} style={styles.itemCard}>
+              <Text style={styles.itemName}>{item.name}</Text>
+              <Text style={styles.itemMeta}>
+                {item.calories ?? '—'} kcal · P{Math.round(item.protein_g ?? 0)} · C
+                {Math.round(item.carbs_g ?? 0)} · F{Math.round(item.fat_g ?? 0)}
+              </Text>
+            </View>
+          ))}
+
+          {result.remaining != null ? (
+            <Text style={styles.resultRemaining}>~{result.remaining} kcal left today</Text>
+          ) : null}
+
+          <Pressable style={styles.primary} onPress={resetScan}>
+            <Text style={styles.primaryText}>Scan another</Text>
+          </Pressable>
+          <Pressable style={styles.secondary} onPress={() => navigation.goBack()}>
+            <Text style={styles.secondaryText}>Back to nutrition</Text>
+          </Pressable>
         </ScrollView>
       </SafeAreaView>
     );
@@ -219,7 +277,7 @@ export function FoodScannerScreen({ navigation, route }: Props) {
 
           <Text style={styles.pickTitle}>Add this food to</Text>
           <Text style={styles.pickSub}>
-            Pick a meal type so it shows under the right card on Calories.
+            Pick a meal type so it shows under the right section in Nutrition.
           </Text>
 
           <View style={styles.optionGrid}>
@@ -319,11 +377,30 @@ export function FoodScannerScreen({ navigation, route }: Props) {
   );
 }
 
+function MacroDot({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value?: number;
+  color: string;
+}) {
+  return (
+    <View style={styles.macroDotRow}>
+      <View style={[styles.macroDot, { backgroundColor: color }]} />
+      <Text style={styles.macroDotLabel}>
+        {label} <Text style={styles.macroDotValue}>{Math.round(value ?? 0)}g</Text>
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#000' },
   center: {
     flex: 1,
-    backgroundColor: '#0B1220',
+    backgroundColor: UI.bg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -427,50 +504,120 @@ const styles = StyleSheet.create({
     borderColor: '#1C211C',
   },
   error: { color: '#FFB4B0', textAlign: 'center', paddingHorizontal: 20 },
-  permTitle: { color: '#F4F7FB', fontSize: 22, fontWeight: '800' },
-  permSub: { color: '#9AA8BC', textAlign: 'center' },
+  permTitle: { color: UI.ink, fontSize: 22, fontWeight: '800' },
+  permSub: { color: UI.inkMuted, textAlign: 'center' },
   primary: {
-    backgroundColor: '#3DDC97',
+    backgroundColor: UI.accent,
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 22,
     alignItems: 'center',
     marginTop: 8,
   },
-  primaryText: { color: '#0B1220', fontWeight: '800' },
-  link: { color: '#9AA8BC', marginTop: 8 },
-  pickSafe: { flex: 1, backgroundColor: '#050505' },
-  pickHeaderTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+  primaryText: { color: '#FFFFFF', fontWeight: '800' },
+  link: { color: UI.inkMuted, marginTop: 8 },
+  pickSafe: { flex: 1, backgroundColor: UI.bg },
+  pickHeaderTitle: { color: UI.ink, fontSize: 18, fontWeight: '800' },
   pickScroll: { padding: 20, paddingBottom: 40, gap: 10 },
   pickPhoto: {
     height: 180,
     borderRadius: 20,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: UI.border,
     marginBottom: 8,
   },
-  pickTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '800', marginTop: 8 },
-  pickSub: { color: '#8A8A8A', lineHeight: 20, marginBottom: 8 },
+  pickTitle: { color: UI.ink, fontSize: 24, fontWeight: '800', marginTop: 8 },
+  pickSub: { color: UI.inkMuted, lineHeight: 20, marginBottom: 8 },
   optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   optionChip: {
     width: '48%',
     flexGrow: 1,
-    backgroundColor: '#111111',
+    backgroundColor: UI.card,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: '#2A2A2A',
+    borderColor: UI.borderStrong,
     paddingVertical: 14,
     paddingHorizontal: 12,
   },
   optionChipOn: {
-    borderColor: '#D4A017',
-    backgroundColor: 'rgba(212,160,23,0.12)',
+    borderColor: UI.accent,
+    backgroundColor: '#F7F0D6',
   },
-  optionLabel: { color: '#EDEDED', fontWeight: '800', fontSize: 15 },
-  optionLabelOn: { color: '#D4A017' },
-  optionWindow: { color: '#6B6B6B', fontSize: 11, marginTop: 4, fontWeight: '600' },
-  optionWindowOn: { color: '#A88B3A' },
-  pickError: { color: '#FF7B72', marginTop: 4 },
-  resultSafe: { flex: 1, backgroundColor: '#050505' },
+  optionLabel: { color: UI.ink, fontWeight: '800', fontSize: 15 },
+  optionLabelOn: { color: UI.accentDark },
+  optionWindow: { color: UI.inkDim, fontSize: 11, marginTop: 4, fontWeight: '600' },
+  optionWindowOn: { color: UI.accentDark },
+  pickError: { color: '#C44', marginTop: 4 },
+  resultSafe: { flex: 1, backgroundColor: UI.bg },
+  resultScroll: { padding: 20, paddingBottom: 40, gap: 14 },
+  resultBack: { alignSelf: 'flex-start' },
+  resultBackText: { color: UI.inkMuted, fontSize: 15, fontWeight: '600' },
+  resultTitle: { fontSize: 28, fontWeight: '800', color: UI.ink, letterSpacing: -0.5 },
+  resultSub: { color: UI.inkMuted, fontSize: 14, marginTop: -6 },
+  platePhoto: {
+    height: 200,
+    borderRadius: UI.radius.lg,
+    backgroundColor: UI.border,
+  },
+  platePlaceholder: {
+    height: 200,
+    borderRadius: UI.radius.lg,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: UI.borderStrong,
+    backgroundColor: UI.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  platePlaceholderIcon: { fontSize: 28, color: UI.inkDim },
+  platePlaceholderText: { color: UI.inkDim, fontWeight: '600', fontSize: 14 },
+  insight: {
+    borderRadius: UI.radius.lg,
+    borderWidth: 1,
+    padding: 14,
+    gap: 6,
+  },
+  insightLabel: { fontWeight: '800', fontSize: 12 },
+  insightBody: { color: UI.ink, lineHeight: 21, fontSize: 14 },
+  summaryCard: {
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.lg,
+    padding: 20,
+    alignItems: 'center',
+    gap: 14,
+    borderWidth: 1,
+    borderColor: UI.border,
+  },
+  summaryKcal: { color: UI.ink, fontSize: 36, fontWeight: '800' },
+  summaryMacros: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  macroDot: { width: 8, height: 8, borderRadius: 4 },
+  macroDotLabel: { color: UI.inkMuted, fontSize: 13 },
+  macroDotValue: { color: UI.ink, fontWeight: '800' },
+  itemsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  itemsTitle: { color: UI.ink, fontWeight: '800', fontSize: 16 },
+  itemsHint: { color: UI.inkDim, fontSize: 12, fontWeight: '600' },
+  itemCard: {
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.md,
+    padding: 16,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: UI.border,
+  },
+  itemName: { color: UI.ink, fontWeight: '800', fontSize: 15 },
+  itemMeta: { color: UI.inkMuted, fontSize: 13, fontFamily: 'Menlo' },
+  resultRemaining: { color: UI.agents.nutrition, fontWeight: '700', textAlign: 'center' },
   resultHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -478,40 +625,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
   },
-  resultHeaderTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  resultScroll: { padding: 20, paddingBottom: 40 },
-  resultCard: {
-    backgroundColor: '#111111',
-    borderRadius: 24,
-    padding: 20,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: '#1C1C1C',
-  },
-  slotPill: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(212,160,23,0.18)',
-    color: '#D4A017',
-    overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  resultFood: { color: '#FFFFFF', fontSize: 24, fontWeight: '800', marginTop: 6 },
-  resultPortion: { color: '#8A8A8A' },
-  resultKcal: { color: '#FFFFFF', fontSize: 32, fontWeight: '800', marginTop: 8 },
-  resultMacros: { color: '#8A8A8A', fontWeight: '600' },
-  resultRemaining: { color: '#3DDC97', fontWeight: '700', marginTop: 4 },
-  resultReason: { color: '#6B6B6B', marginTop: 10, lineHeight: 20 },
+  resultHeaderTitle: { color: UI.ink, fontSize: 18, fontWeight: '800' },
   secondary: {
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: UI.borderStrong,
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 8,
   },
-  secondaryText: { color: '#EDEDED', fontWeight: '700' },
+  secondaryText: { color: UI.ink, fontWeight: '700' },
 });

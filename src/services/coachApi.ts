@@ -2,6 +2,7 @@ import { api } from '../lib/api';
 import type {
   DailySignals,
   DecisionLogEntry,
+  IdentifiedFoodItem,
   NutritionState,
   SessionStatus,
   UserProfile,
@@ -102,6 +103,15 @@ export async function logMeal(
       portion?: string;
       confidence?: number;
       query?: string;
+      items?: IdentifiedFoodItem[];
+    };
+    identified_items?: IdentifiedFoodItem[];
+    daily_totals?: {
+      calories: number;
+      protein_g: number;
+      carbs_g: number;
+      fat_g: number;
+      meal_count: number;
     };
     macros?: {
       calories?: number;

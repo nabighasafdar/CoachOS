@@ -60,8 +60,38 @@ class MockFoodClient(FoodClient):
         return {
             "food_name": "Grilled chicken with rice and vegetables",
             "portion": "1 plate",
-            "confidence": 0.4,
+            "confidence": 0.85,
             "query": "1 plate grilled chicken with rice and vegetables",
+            "estimated_calories": 541,
+            "estimated_protein_g": 54,
+            "estimated_carbs_g": 49,
+            "estimated_fat_g": 12,
+            "items": [
+                {
+                    "name": "Grilled chicken breast",
+                    "portion": "6 oz",
+                    "estimated_calories": 284,
+                    "estimated_protein_g": 46,
+                    "estimated_carbs_g": 0,
+                    "estimated_fat_g": 8,
+                },
+                {
+                    "name": "Brown rice, 1 cup",
+                    "portion": "1 cup",
+                    "estimated_calories": 216,
+                    "estimated_protein_g": 5,
+                    "estimated_carbs_g": 45,
+                    "estimated_fat_g": 2,
+                },
+                {
+                    "name": "Steamed spinach",
+                    "portion": "1 cup",
+                    "estimated_calories": 41,
+                    "estimated_protein_g": 3,
+                    "estimated_carbs_g": 4,
+                    "estimated_fat_g": 2,
+                },
+            ],
         }
 
 
@@ -85,7 +115,12 @@ class PipelineFoodClient(FoodClient):
             '"estimated_calories": 0, '
             '"estimated_protein_g": 0, '
             '"estimated_carbs_g": 0, '
-            '"estimated_fat_g": 0'
+            '"estimated_fat_g": 0, '
+            '"items": ['
+            '{"name": "item name", "portion": "portion", '
+            '"estimated_calories": 0, "estimated_protein_g": 0, '
+            '"estimated_carbs_g": 0, "estimated_fat_g": 0}'
+            "]"
             "}"
         )
         try:
@@ -118,6 +153,7 @@ class PipelineFoodClient(FoodClient):
                 "estimated_protein_g": self._num(data.get("estimated_protein_g")),
                 "estimated_carbs_g": self._num(data.get("estimated_carbs_g")),
                 "estimated_fat_g": self._num(data.get("estimated_fat_g")),
+                "items": data.get("items") if isinstance(data.get("items"), list) else [],
             }
         except Exception as exc:
             print(f"[food] Gemini identify failed: {exc}")

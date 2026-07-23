@@ -12,6 +12,37 @@ from tools.food import get_food_client
 MAJORITY_SHARE = 0.45
 
 
+def _item_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    name = str(row.get("name") or row.get("food_name") or "Item")
+    return {
+        "name": name,
+        "portion": row.get("portion"),
+        "calories": round(float(row.get("calories") or row.get("estimated_calories") or 0)),
+        "protein_g": round(float(row.get("protein_g") or row.get("estimated_protein_g") or 0), 1),
+        "carbs_g": round(float(row.get("carbs_g") or row.get("carbohydrates_total_g") or row.get("estimated_carbs_g") or 0), 1),
+        "fat_g": round(float(row.get("fat_g") or row.get("fat_total_g") or row.get("estimated_fat_g") or 0), 1),
+    }
+
+
+def _identified_items(identify: dict[str, Any] | None, info: dict[str, Any], meal_desc: str) -> list[dict[str, Any]]:
+    if identify and isinstance(identify.get("items"), list) and identify["items"]:
+        return [_item_from_row(item) for item in identify["items"]]
+    if isinstance(info.get("items"), list) and info["items"]:
+        return [_item_from_row(item) for item in info["items"]]
+    return [
+        _item_from_row(
+            {
+                "name": info.get("name") or (identify or {}).get("food_name") or meal_desc,
+                "portion": (identify or {}).get("portion"),
+                "calories": info.get("calories") or (identify or {}).get("estimated_calories"),
+                "protein_g": info.get("protein_g") or (identify or {}).get("estimated_protein_g"),
+                "carbs_g": info.get("carbs_g") or (identify or {}).get("estimated_carbs_g"),
+                "fat_g": info.get("fat_g") or (identify or {}).get("estimated_fat_g"),
+            }
+        )
+    ]
+
+
 def _next_meal_budget(target: int, eaten: int, last_meal_kcal: int) -> tuple[str, list[str]]:
     """Return (primary tip, extra suggestion lines) after a meal log."""
     remaining = max(target - eaten, 0)
@@ -97,6 +128,8 @@ async def run_nutrition(
     if profile and profile.daily_calorie_target:
         state.calorie_target = profile.daily_calorie_target
 
+    items = _identified_items(identify, info, meal_desc)
+
     meal = MealLog(
         id=uuid.uuid4().hex[:10],
         description=meal_desc,
@@ -107,6 +140,7 @@ async def run_nutrition(
         source=source,  # type: ignore[arg-type]
         meal_slot=meal_slot,
         meal_label=meal_label,
+        items=items,
     )
     state.meals.append(meal)
 
@@ -148,6 +182,14 @@ async def run_nutrition(
         "meal": meal.model_dump(),
         "nutrition_state": state.model_dump(),
         "identify": identify,
+        "identified_items": items,
+        "daily_totals": {
+            "calories": eaten,
+            "protein_g": round(protein_eaten, 1),
+            "carbs_g": round(sum(m.carbs_g or 0 for m in state.meals), 1),
+            "fat_g": round(sum(m.fat_g or 0 for m in state.meals), 1),
+            "meal_count": len(state.meals),
+        },
         "macros": {
             "calories": info.get("calories"),
             "protein_g": info.get("protein_g"),

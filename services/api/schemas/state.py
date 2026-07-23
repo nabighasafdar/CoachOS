@@ -79,6 +79,7 @@ class MealLog(BaseModel):
     source: Literal["text", "photo", "barcode"] = "text"
     meal_slot: Optional[str] = None
     meal_label: Optional[str] = None
+    items: list[dict[str, Any]] = Field(default_factory=list)
     logged_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
 
 

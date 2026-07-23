@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -8,61 +8,48 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { fetchActivity, runAccountability } from '../services/coachApi';
+import { fetchActivity } from '../services/coachApi';
 import { useAppStore } from '../store/appStore';
+import { AGENT_LABELS, UI } from '../theme/ui';
 import type { AgentName, DecisionLogEntry } from '../types/agent';
 
-const AGENT_COLORS: Record<AgentName, string> = {
-  planner: '#7AA2FF',
-  recovery: '#3DDC97',
-  nutrition: '#F0C14A',
-  adaptation: '#C084FC',
-  accountability: '#FF7B72',
-};
-
-const AGENT_LABELS: Record<AgentName, string> = {
-  planner: 'Planner',
-  recovery: 'Recovery',
-  nutrition: 'Nutrition',
-  adaptation: 'Adaptation',
-  accountability: 'Accountability',
-};
-
-const LEGEND: AgentName[] = [
-  'planner',
-  'recovery',
-  'nutrition',
-  'adaptation',
-  'accountability',
+const FILTERS: { key: 'all' | AgentName; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'planner', label: 'Planner' },
+  { key: 'recovery', label: 'Recovery' },
+  { key: 'nutrition', label: 'Nutrition' },
+  { key: 'adaptation', label: 'Adaptation' },
+  { key: 'accountability', label: 'Accountability' },
 ];
 
 function formatStamp(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const date = d.toISOString().slice(0, 10);
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${date} · ${time}`;
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const day = isToday ? 'Today' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+  return `${day} · ${time}`;
 }
 
 function humanAction(action: string) {
-  return action
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function DecisionCard({ decision }: { decision: DecisionLogEntry }) {
-  const color = AGENT_COLORS[decision.agent] ?? '#F4F7FB';
-  const label = AGENT_LABELS[decision.agent] ?? decision.agent;
+  const color = UI.agents[decision.agent];
+  const bg = UI.agentBg[decision.agent];
   return (
-    <View style={[styles.card, { borderColor: `${color}55` }]}>
+    <View style={[styles.card, { borderLeftColor: color }]}>
       <View style={styles.cardHeader}>
-        <View style={styles.agentRow}>
-          <View style={[styles.dot, { backgroundColor: color }]} />
-          <Text style={[styles.agentName, { color }]}>{label}</Text>
+        <View style={[styles.badge, { backgroundColor: bg }]}>
+          <Text style={[styles.badgeText, { color }]}>{AGENT_LABELS[decision.agent]}</Text>
         </View>
         <Text style={styles.time}>{formatStamp(decision.timestamp)}</Text>
       </View>
       <Text style={styles.action}>{humanAction(decision.action)}</Text>
+      <View style={styles.divider} />
+      <Text style={styles.whyLabel}>WHY</Text>
       <Text style={styles.reason}>{decision.reason}</Text>
     </View>
   );
@@ -72,8 +59,8 @@ export function AgentsScreen() {
   const profile = useAppStore((s) => s.profile);
   const decisions = useAppStore((s) => s.decisions);
   const setDecisions = useAppStore((s) => s.setDecisions);
+  const [filter, setFilter] = useState<'all' | AgentName>('all');
   const [busy, setBusy] = useState(false);
-  const [nudge, setNudge] = useState('');
 
   const refresh = useCallback(async () => {
     if (!profile) return;
@@ -85,63 +72,42 @@ export function AgentsScreen() {
     }
   }, [profile, setDecisions]);
 
-  async function accountability() {
-    if (!profile) return;
-    setBusy(true);
-    try {
-      const nudges = await runAccountability(profile.user_id);
-      setNudge(nudges[0]?.message ?? 'No nudge');
-      setDecisions(await fetchActivity(profile.user_id));
-    } catch (e) {
-      setNudge(e instanceof Error ? e.message : 'Accountability failed');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const filtered = useMemo(
+    () => (filter === 'all' ? decisions : decisions.filter((d) => d.agent === filter)),
+    [decisions, filter],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={busy} onRefresh={refresh} tintColor="#C084FC" />
-        }
+        refreshControl={<RefreshControl refreshing={busy} onRefresh={refresh} />}
       >
-        <View style={styles.previewPill}>
-          <Text style={styles.previewText}>Preview</Text>
+        <Text style={styles.title}>Agent activity log</Text>
+        <Text style={styles.sub}>Every decision an agent made on your behalf, and why.</Text>
+
+        <View style={styles.chipWrap}>
+          {FILTERS.map((f) => (
+            <Pressable
+              key={f.key}
+              onPress={() => setFilter(f.key)}
+              style={[styles.chip, filter === f.key && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, filter === f.key && styles.chipTextActive]}>{f.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
-        <Text style={styles.title}>Agent Activity</Text>
-        <Text style={styles.sub}>What each agent decided — and why.</Text>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.legendRow}
-        >
-          {LEGEND.map((agent) => (
-            <View key={agent} style={styles.legendItem}>
-              <View style={[styles.dot, { backgroundColor: AGENT_COLORS[agent] }]} />
-              <Text style={styles.legendText}>{AGENT_LABELS[agent]}</Text>
-            </View>
-          ))}
-        </ScrollView>
-
-        <Pressable style={styles.accountabilityBtn} onPress={accountability} disabled={busy}>
-          <Text style={styles.accountabilityText}>Run Accountability Agent</Text>
-        </Pressable>
-        {nudge ? <Text style={styles.nudge}>{nudge}</Text> : null}
-
-        {decisions.length === 0 ? (
+        {filtered.length === 0 ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No decisions yet</Text>
+            <Text style={styles.emptyTitle}>No activity yet</Text>
             <Text style={styles.emptyCopy}>
-              Generate a plan, scan a meal, or skip a workout — agents will log every action here.
+              Generate a plan, log a meal, or complete a check-in — agents will log every action here.
             </Text>
           </View>
         ) : (
-          decisions.map((d) => <DecisionCard key={d.id} decision={d} />)
+          filtered.map((d) => <DecisionCard key={d.id} decision={d} />)
         )}
       </ScrollView>
     </SafeAreaView>
@@ -149,61 +115,47 @@ export function AgentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0B0B0C' },
+  safe: { flex: 1, backgroundColor: UI.bg },
   container: { padding: 20, paddingBottom: 40, gap: 12 },
-  previewPill: {
-    alignSelf: 'flex-start',
-    borderRadius: 999,
+  title: { fontSize: 28, fontWeight: '800', color: UI.ink, letterSpacing: -0.5 },
+  sub: { color: UI.inkMuted, fontSize: 15, marginBottom: 4, lineHeight: 21 },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
     borderWidth: 1,
-    borderColor: '#2A2A2E',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderColor: UI.borderStrong,
+    borderRadius: UI.radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: UI.card,
   },
-  previewText: { color: '#6B6B6B', fontSize: 11, fontWeight: '700' },
-  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5 },
-  sub: { color: '#8A8A8A', fontSize: 15, marginTop: -4 },
-  legendRow: { gap: 14, paddingVertical: 4 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendText: { color: '#9AA8BC', fontSize: 12, fontWeight: '600' },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  accountabilityBtn: {
-    backgroundColor: '#1A1010',
-    borderRadius: 16,
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#3A2020',
-    marginTop: 4,
-  },
-  accountabilityText: { color: '#FF8A84', fontWeight: '700', fontSize: 15 },
-  nudge: { color: '#F0C14A', lineHeight: 20 },
+  chipActive: { backgroundColor: UI.black, borderColor: UI.black },
+  chipText: { color: UI.inkMuted, fontWeight: '600', fontSize: 13 },
+  chipTextActive: { color: '#FFFFFF' },
   emptyCard: {
-    backgroundColor: '#121214',
-    borderRadius: 18,
-    padding: 18,
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.lg,
+    padding: 20,
     borderWidth: 1,
-    borderColor: '#1C1C1C',
-    marginTop: 4,
+    borderColor: UI.border,
+    marginTop: 8,
   },
-  emptyTitle: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
-  emptyCopy: { color: '#8A8A8A', marginTop: 6, lineHeight: 20 },
+  emptyTitle: { color: UI.ink, fontWeight: '800', fontSize: 16 },
+  emptyCopy: { color: UI.inkMuted, marginTop: 6, lineHeight: 20 },
   card: {
-    backgroundColor: '#121214',
-    borderRadius: 18,
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.lg,
     padding: 16,
-    borderWidth: 1.5,
-    gap: 6,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: UI.border,
+    borderLeftWidth: 4,
     gap: 8,
   },
-  agentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  agentName: { fontWeight: '800', fontSize: 13 },
-  time: { color: '#6B6B6B', fontSize: 11, fontWeight: '600' },
-  action: { color: '#FFFFFF', fontWeight: '800', fontSize: 16, marginTop: 2, lineHeight: 22 },
-  reason: { color: '#9AA8BC', lineHeight: 20, fontSize: 13 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  badge: { borderRadius: UI.radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeText: { fontWeight: '800', fontSize: 12 },
+  time: { color: UI.inkDim, fontSize: 12 },
+  action: { color: UI.ink, fontWeight: '700', fontSize: 15, lineHeight: 22 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: UI.border, marginVertical: 4 },
+  whyLabel: { color: UI.inkDim, fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
+  reason: { color: UI.inkMuted, lineHeight: 20, fontSize: 14 },
 });

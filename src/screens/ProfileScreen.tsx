@@ -1,18 +1,11 @@
 import * as Notifications from 'expo-notifications';
-import { useState } from 'react';
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { isSupabaseConfigured } from '../lib/supabase';
-import { logout, saveUserProfile } from '../services/auth';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { logout } from '../services/auth';
 import { useAppStore } from '../store/appStore';
+import { AGENT_LABELS, UI } from '../theme/ui';
+import type { AgentName } from '../types/agent';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -23,65 +16,23 @@ Notifications.setNotificationHandler({
   }),
 });
 
-function titleCaseList(items: string[]) {
-  if (!items.length) return '—';
-  return items
-    .map((item) => item.replace(/\b\w/g, (c) => c.toUpperCase()))
-    .join(' · ');
-}
+const AGENTS: { key: AgentName; mode: string }[] = [
+  { key: 'planner', mode: 'Acts automatically' },
+  { key: 'recovery', mode: 'Acts automatically' },
+  { key: 'nutrition', mode: 'Suggests only' },
+  { key: 'adaptation', mode: 'Acts automatically' },
+  { key: 'accountability', mode: 'Suggests only' },
+];
 
-function titleCaseDay(day: string) {
-  return day.slice(0, 1).toUpperCase() + day.slice(1, 3);
-}
+const CONNECTIONS = [
+  { icon: 'watch-outline' as const, title: 'Google Fit', sub: 'Sleep, HRV, activity' },
+  { icon: 'calendar-outline' as const, title: 'Calendar', sub: 'Scheduling conflicts' },
+  { icon: 'cloud-outline' as const, title: 'Weather', sub: 'Outdoor session rerouting' },
+];
 
 export function ProfileScreen() {
   const profile = useAppStore((s) => s.profile);
-  const authMode = useAppStore((s) => s.authMode);
-  const [pushEnabled, setPushEnabled] = useState(!!profile?.push_token);
-  const [pushStatus, setPushStatus] = useState('');
-
-  async function togglePush(next: boolean) {
-    if (!next) {
-      setPushEnabled(false);
-      setPushStatus('Push notifications off');
-      return;
-    }
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let status = existing;
-    if (existing !== 'granted') {
-      const req = await Notifications.requestPermissionsAsync();
-      status = req.status;
-    }
-    if (status !== 'granted') {
-      setPushEnabled(false);
-      setPushStatus('Permission denied');
-      return;
-    }
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
-    if (profile) {
-      await saveUserProfile({ ...profile, push_token: token });
-    }
-    setPushEnabled(true);
-    setPushStatus('Push notifications on');
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'CoachOS ready',
-        body: 'Agent nudges and plan updates can reach this device.',
-      },
-      trigger: null,
-    });
-  }
-
-  async function demoWeatherNudge() {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Rain at your usual run time',
-        body: 'Want me to move today’s conditioning indoors?',
-      },
-      trigger: null,
-    });
-    Alert.alert('Nudge sent', 'Local demo notification fired.');
-  }
+  const plan = useAppStore((s) => s.plan);
 
   if (!profile) {
     return (
@@ -94,81 +45,58 @@ export function ProfileScreen() {
     );
   }
 
-  const initial = (profile.display_name || profile.email || 'U').charAt(0).toUpperCase();
-  const authLabel =
-    authMode === 'supabase' && isSupabaseConfigured() ? 'SUPABASE AUTH' : 'LOCAL AUTH';
-
-  const rows = [
-    { label: 'Goals', value: titleCaseList(profile.goals) },
-    { label: 'Equipment', value: titleCaseList(profile.equipment) },
-    {
-      label: 'Training days',
-      value: profile.available_days.map(titleCaseDay).join(' · ') || '—',
-    },
-    {
-      label: 'Experience',
-      value: profile.experience_level.replace(/\b\w/g, (c) => c.toUpperCase()),
-    },
-    {
-      label: 'Injuries',
-      value: profile.injuries.length ? profile.injuries.join(' · ') : 'None',
-    },
-  ];
+  const initial = (profile.display_name || profile.email || 'A').charAt(0).toUpperCase();
+  const cycleLabel = profile.goals[0]
+    ? `${profile.goals[0].replace(/\b\w/g, (c) => c.toUpperCase())} cycle`
+    : 'Training cycle';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Profile</Text>
-
-        <View style={styles.userRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initial}</Text>
-          </View>
-          <View style={styles.userMeta}>
-            <Text style={styles.name}>{profile.display_name || 'Athlete'}</Text>
-            <Text style={styles.email}>{profile.email || 'No email'}</Text>
-            <View style={styles.authBadge}>
-              <Text style={styles.authBadgeText}>{authLabel}</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.userRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initial}</Text>
+            </View>
+            <View>
+              <Text style={styles.name}>{profile.display_name || 'Alex Rivera'}</Text>
+              <Text style={styles.cycle}>
+                {cycleLabel}
+                {plan ? ` · week ${plan.version}` : ''}
+              </Text>
             </View>
           </View>
+          <Ionicons name="settings-outline" size={22} color={UI.inkMuted} />
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>TRAINING PROFILE</Text>
-          {rows.map((row, index) => (
-            <View
-              key={row.label}
-              style={[styles.infoRow, index < rows.length - 1 && styles.infoRowBorder]}
-            >
-              <Text style={styles.infoLabel}>{row.label}</Text>
-              <Text style={styles.infoValue}>{row.value}</Text>
+        <Text style={styles.sectionTitle}>Agent permissions</Text>
+        {AGENTS.map((a) => (
+          <View key={a.key} style={styles.rowCard}>
+            <View style={[styles.dot, { backgroundColor: UI.agents[a.key] }]} />
+            <Text style={styles.rowTitle}>{AGENT_LABELS[a.key]}</Text>
+            <View style={styles.modeBadge}>
+              <MaterialCommunityIcons name="sync" size={12} color={UI.inkMuted} />
+              <Text style={styles.modeText}>{a.mode}</Text>
             </View>
-          ))}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>NOTIFICATIONS</Text>
-          <View style={styles.notifyRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={styles.notifyTitle}>Push notifications</Text>
-              <Text style={styles.notifySub}>Agent nudges and plan updates</Text>
-            </View>
-            <Switch
-              value={pushEnabled}
-              onValueChange={(v) => void togglePush(v)}
-              trackColor={{ false: '#2A2A2E', true: 'rgba(61,220,151,0.45)' }}
-              thumbColor={pushEnabled ? '#3DDC97' : '#8A8A8A'}
-            />
           </View>
-          {pushStatus ? <Text style={styles.pushStatus}>{pushStatus}</Text> : null}
-        </View>
+        ))}
 
-        <Pressable style={styles.weatherBtn} onPress={demoWeatherNudge}>
-          <Text style={styles.weatherBtnText}>Demo weather nudge</Text>
-        </Pressable>
+        <Text style={styles.sectionTitle}>Connections</Text>
+        {CONNECTIONS.map((c) => (
+          <View key={c.title} style={styles.connCard}>
+            <Ionicons name={c.icon} size={22} color={UI.inkMuted} />
+            <View style={styles.connBody}>
+              <Text style={styles.connTitle}>{c.title}</Text>
+              <Text style={styles.connSub}>{c.sub}</Text>
+            </View>
+            <View style={styles.connectedBadge}>
+              <Text style={styles.connectedText}>Connected</Text>
+            </View>
+          </View>
+        ))}
 
-        <Pressable style={styles.dangerBtn} onPress={() => logout()}>
-          <Text style={styles.dangerBtnText}>Sign out</Text>
+        <Pressable style={styles.signOut} onPress={() => logout()}>
+          <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -176,95 +104,75 @@ export function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0B0B0C' },
-  container: { padding: 20, paddingBottom: 40, gap: 14 },
-  title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5 },
-  sub: { color: '#8A8A8A' },
-  userRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 },
+  safe: { flex: 1, backgroundColor: UI.bg },
+  container: { padding: 20, paddingBottom: 40, gap: 10 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  userRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#1A1A1C',
-    borderWidth: 1,
-    borderColor: '#2A2A2E',
+    backgroundColor: UI.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: '#8EB4FF', fontSize: 24, fontWeight: '800' },
-  userMeta: { flex: 1, gap: 3 },
-  name: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
-  email: { color: '#8A8A8A', fontSize: 14 },
-  authBadge: {
-    alignSelf: 'flex-start',
-    marginTop: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#3DDC97',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  authBadgeText: {
-    color: '#3DDC97',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  card: {
-    backgroundColor: '#121214',
-    borderRadius: 20,
+  avatarText: { color: '#FFFFFF', fontSize: 26, fontWeight: '800' },
+  name: { color: UI.ink, fontSize: 22, fontWeight: '800' },
+  cycle: { color: UI.inkMuted, fontSize: 14, marginTop: 2 },
+  title: { fontSize: 28, fontWeight: '800', color: UI.ink },
+  sub: { color: UI.inkMuted },
+  sectionTitle: { color: UI.ink, fontWeight: '800', fontSize: 17, marginTop: 12, marginBottom: 4 },
+  rowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#1C1C1C',
+    borderColor: UI.border,
   },
-  sectionLabel: {
-    color: '#6B6B6B',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 8,
-  },
-  infoRow: {
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  rowTitle: { flex: 1, color: UI.ink, fontWeight: '700', fontSize: 15 },
+  modeBadge: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-    paddingVertical: 12,
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: UI.bg,
+    borderRadius: UI.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  infoRowBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2A2A2E',
+  modeText: { color: UI.inkMuted, fontSize: 11, fontWeight: '600' },
+  connCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.md,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: UI.border,
   },
-  infoLabel: { color: '#8A8A8A', fontSize: 14, flexShrink: 0 },
-  infoValue: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'right',
-    flex: 1,
+  connBody: { flex: 1, gap: 2 },
+  connTitle: { color: UI.ink, fontWeight: '800', fontSize: 15 },
+  connSub: { color: UI.inkMuted, fontSize: 13 },
+  connectedBadge: {
+    backgroundColor: '#E6F7F2',
+    borderRadius: UI.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  notifyRow: { flexDirection: 'row', alignItems: 'center', paddingTop: 4 },
-  notifyTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  notifySub: { color: '#8A8A8A', fontSize: 13, marginTop: 3 },
-  pushStatus: { color: '#6B6B6B', fontSize: 12, marginTop: 10 },
-  weatherBtn: {
-    backgroundColor: '#12182A',
-    borderRadius: 16,
+  connectedText: { color: '#2A9D7A', fontSize: 11, fontWeight: '800' },
+  signOut: {
+    marginTop: 16,
+    backgroundColor: UI.card,
+    borderRadius: UI.radius.md,
     minHeight: 52,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2B3A5C',
+    borderColor: UI.border,
   },
-  weatherBtnText: { color: '#8EB4FF', fontWeight: '700', fontSize: 15 },
-  dangerBtn: {
-    backgroundColor: '#1A1010',
-    borderRadius: 16,
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#3A2020',
-  },
-  dangerBtnText: { color: '#FF8A84', fontWeight: '700', fontSize: 15 },
+  signOutText: { color: UI.inkMuted, fontWeight: '700' },
 });

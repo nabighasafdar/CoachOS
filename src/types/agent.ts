@@ -59,7 +59,17 @@ export type MealLog = {
   source: 'text' | 'photo' | 'barcode';
   meal_slot?: string | null;
   meal_label?: string | null;
+  items?: IdentifiedFoodItem[];
   logged_at: string;
+};
+
+export type IdentifiedFoodItem = {
+  name: string;
+  portion?: string | null;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
 };
 
 export type NutritionState = {
